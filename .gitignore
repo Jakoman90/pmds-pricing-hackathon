@@ -1,7 +1,32 @@
-.venv/
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments & local env
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Test, lint, and type-check caches
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Simulator run outputs (charts & JSONL recordings)
 outputs/
 
+# Editor & OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/

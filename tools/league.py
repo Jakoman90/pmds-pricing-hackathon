@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import statistics
 import sys
@@ -18,8 +19,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dme_simulator.agents.loader import discover_bundle_classes  # noqa: E402
+from dme_simulator.batch_runner import _aggregate_histories  # noqa: E402
 from dme_simulator.config import load_config  # noqa: E402
 from dme_simulator.runner import run_simulation  # noqa: E402
+from dme_simulator.visualization import render_plots  # noqa: E402
 
 AGENTS_DIR = ROOT / "src" / "dme_simulator" / "agents"
 
@@ -178,6 +181,23 @@ ROSTERS = {
         "PatientAgent": ("PatientAgent", {}),
         "PriceWarAgent": ("PriceWarAgent", {}),
     },
+    "submitted": {
+        "444_agent": ("444_agent", {}),
+        "rotating_forks_agent": ("rotating_forks_agent", {}),
+        "DummyAgent": ("DummyAgent", {}),
+        "PatientAgent": ("PatientAgent", {}),
+        "PriceWarAgent": ("PriceWarAgent", {}),
+    },
+    "submitted_field": {
+        "444_agent": ("444_agent", {}),
+        "rotating_forks_agent": ("rotating_forks_agent", {}),
+        "adaptive_v3": ("adaptive_v3", {}),
+        "tight": ("tight", {}),
+        "mirror_sniper": ("mirror_sniper", {}),
+        "rival_stockpile": ("rival_stockpile", {}),
+        "rival_under_cut": ("rival_under_cut", {}),
+        "DummyAgent": ("DummyAgent", {}),
+    },
     "official": {
         "444_agent": ("444_agent", {}),
         "DummyAgent": ("DummyAgent", {}),
@@ -187,9 +207,10 @@ ROSTERS = {
     # a busier market: several strong-ish rivals
     "crowded": {
         "444_agent": ("444_agent", {}),
+        "rotating_forks": ("rotating_forks_agent", {}),
         "pepo_baseline": ("pepo_baseline", {}),
-        "pepo_v1": ("444_agent", V1),
-        "pepo_single": ("444_agent", {"split_listings": False}),
+        "pepo_v1": ("rotating_forks_agent", V1),
+        "pepo_single": ("rotating_forks_agent", {"split_listings": False}),
         "rival_c": ("pepo_baseline", {}),
         "DummyAgent": ("DummyAgent", {}),
         "PriceWarAgent": ("PriceWarAgent", {}),
@@ -222,21 +243,21 @@ ROSTERS = {
         "DummyAgent": ("DummyAgent", {}),
     },
     "mirror_tune": {
-        "tune_base": ("444_agent", {}),
-        "tune_low_markup": ("444_agent", {"init_markup": 5.0, "down": 0.88, "min_markup": 1.8}),
-        "tune_high_markup": ("444_agent", {"init_markup": 10.0, "down": 0.94, "min_markup": 2.8}),
-        "tune_light_stock": ("444_agent", {"target_min": 6, "target_cover": 1.0, "target_max": 20}),
-        "tune_cash_guard": ("444_agent", {"budget_frac": 0.35, "leader_guard": True}),
-        "tune_sniper": ("444_agent", {"bid_premium": 0.35, "premium_up": 0.5, "budget_frac": 0.85}),
-        "tune_short": ("444_agent", {"horizon_adapt": True, "horizon_turn": 8, "target_min": 6}),
-        "tune_aggressive": ("444_agent", {"down": 0.82, "hold_down": 0.90, "min_markup": 1.5}),
+        "tune_base": ("rotating_forks_agent", {}),
+        "tune_low_markup": ("rotating_forks_agent", {"init_markup": 5.0, "down": 0.88, "min_markup": 1.8}),
+        "tune_high_markup": ("rotating_forks_agent", {"init_markup": 10.0, "down": 0.94, "min_markup": 2.8}),
+        "tune_light_stock": ("rotating_forks_agent", {"target_min": 6, "target_cover": 1.0, "target_max": 20}),
+        "tune_cash_guard": ("rotating_forks_agent", {"budget_frac": 0.35, "leader_guard": True}),
+        "tune_sniper": ("rotating_forks_agent", {"bid_premium": 0.35, "premium_up": 0.5, "budget_frac": 0.85}),
+        "tune_short": ("rotating_forks_agent", {"horizon_adapt": True, "horizon_turn": 8, "target_min": 6}),
+        "tune_aggressive": ("rotating_forks_agent", {"down": 0.82, "hold_down": 0.90, "min_markup": 1.5}),
         "mirror_balanced": ("mirror_balanced", {}),
         "mirror_aggressive": ("mirror_aggressive", {}),
         "mirror_conservative": ("mirror_conservative", {}),
         "mirror_sniper": ("mirror_sniper", {}),
     },
     "mirror_counter": {
-        "counter_sniper": ("444_agent", {
+        "counter_sniper": ("rotating_forks_agent", {
             "init_markup": 8.0,
             "ladder": [1.0, 0.86, 1.25, 0.72, 1.5, 1.8],
             "down": 0.90,
@@ -271,10 +292,10 @@ ROSTERS = {
     },
     "diverse_tune": {
         "444_adaptive": ("444_agent", {}),
-        "444_mature_stock": ("444_agent", {"target_min": 24, "target_cover": 3.0, "target_max": 40}),
-        "444_cost_guard": ("444_agent", {"budget_frac": 0.55, "maturity_adapt": True}),
-        "444_chip": ("444_agent", {"bid_premium": 0.55, "budget_frac": 0.95}),
-        "444_undercut": ("444_agent", {"down": 0.82, "min_markup": 1.3, "floor_relax": 0.92}),
+        "444_mature_stock": ("rotating_forks_agent", {"target_min": 24, "target_cover": 3.0, "target_max": 40}),
+        "444_cost_guard": ("rotating_forks_agent", {"budget_frac": 0.55, "maturity_adapt": True}),
+        "444_chip": ("rotating_forks_agent", {"bid_premium": 0.55, "budget_frac": 0.95}),
+        "444_undercut": ("rotating_forks_agent", {"down": 0.82, "min_markup": 1.3, "floor_relax": 0.92}),
         "under_cut": ("rival_under_cut", {}),
         "stockpile": ("rival_stockpile", {}),
         "chip": ("rival_chip", {}),
@@ -284,7 +305,7 @@ ROSTERS = {
     },
     "moderate_aggressive": {
         "444_base": ("444_agent", {}),
-        "444_under1": ("444_agent", {
+        "444_under1": ("rotating_forks_agent", {
             "init_markup": 3.0, "ladder": [1.0, 0.82, 0.68, 1.08, 1.18],
             "down": 0.82, "hold_down": 0.97, "min_markup": 1.25,
             "floor_patience": 1, "floor_relax": 0.92, "floor_abs": 1.05,
@@ -292,7 +313,7 @@ ROSTERS = {
             "bid_premium": 0.20, "premium_up": 0.28, "premium_decay": 0.60,
             "budget_frac": 0.80, "leader_guard": False, "maturity_adapt": False,
         }),
-        "444_under2": ("444_agent", {
+        "444_under2": ("rotating_forks_agent", {
             "init_markup": 3.5, "ladder": [1.0, 0.78, 0.62, 1.10, 1.22],
             "down": 0.85, "hold_down": 0.95, "min_markup": 1.35,
             "floor_patience": 1, "floor_relax": 0.92, "floor_abs": 1.10,
@@ -300,7 +321,7 @@ ROSTERS = {
             "bid_premium": 0.25, "premium_up": 0.30, "premium_decay": 0.65,
             "budget_frac": 0.85, "leader_guard": False, "maturity_adapt": False,
         }),
-        "444_under3": ("444_agent", {
+        "444_under3": ("rotating_forks_agent", {
             "init_markup": 2.5, "ladder": [1.0, 0.88, 0.72, 1.05, 1.15],
             "down": 0.78, "hold_down": 0.92, "min_markup": 1.20,
             "floor_patience": 1, "floor_relax": 0.88, "floor_abs": 1.05,
@@ -314,7 +335,7 @@ ROSTERS = {
     },
     "super_aggressive": {
         "444_base": ("444_agent", {}),
-        "444_all_in": ("444_agent", {
+        "444_all_in": ("rotating_forks_agent", {
             "init_markup": 2.8, "ladder": [1.0, 0.58, 1.12, 0.48, 1.28, 1.45],
             "down": 0.78, "hold_down": 0.88, "min_markup": 1.15,
             "floor_patience": 1, "floor_relax": 0.90, "floor_abs": 1.05,
@@ -323,7 +344,7 @@ ROSTERS = {
             "premium_up": 0.50, "premium_decay": 0.75, "premium_cap": 2.5,
             "budget_frac": 1.0, "leader_guard": False, "maturity_adapt": False,
         }),
-        "444_momentum": ("444_agent", {
+        "444_momentum": ("rotating_forks_agent", {
             "init_markup": 3.5, "ladder": [1.0, 0.68, 1.18, 0.55, 1.35, 1.65],
             "down": 0.82, "hold_down": 0.92, "min_markup": 1.25,
             "floor_patience": 1, "floor_relax": 0.92,
@@ -332,7 +353,7 @@ ROSTERS = {
             "premium_up": 0.55, "premium_decay": 0.70, "premium_cap": 2.8,
             "budget_frac": 1.0, "leader_guard": False, "maturity_adapt": False,
         }),
-        "444_breaker": ("444_agent", {
+        "444_breaker": ("rotating_forks_agent", {
             "init_markup": 2.5, "ladder": [1.0, 0.72, 0.92, 0.62, 1.15, 1.25],
             "down": 0.75, "hold_down": 0.85, "min_markup": 1.20,
             "floor_patience": 1, "floor_relax": 0.88,
@@ -341,7 +362,7 @@ ROSTERS = {
             "premium_up": 0.60, "premium_decay": 0.80, "premium_cap": 3.0,
             "budget_frac": 1.0, "leader_guard": False, "maturity_adapt": False,
         }),
-        "444_fast_floor": ("444_agent", {
+        "444_fast_floor": ("rotating_forks_agent", {
             "init_markup": 3.0, "ladder": [1.0, 0.80, 1.08, 0.70, 1.20, 1.35],
             "down": 0.85, "hold_down": 0.95, "min_markup": 1.35,
             "floor_patience": 1, "floor_relax": 0.85,
@@ -354,14 +375,14 @@ ROSTERS = {
     },
     "ultralong_tune": {
         "444_ultra_adaptive": ("444_agent", {}),
-        "444_ultra_balanced": ("444_agent", {
+        "444_ultra_balanced": ("rotating_forks_agent", {
             "init_markup": 7.0, "ladder": [1.0, 0.88, 1.12, 0.78, 1.25],
             "down": 0.94, "hold_down": 0.97, "floor_patience": 3,
             "target_min": 24, "target_cover": 2.5, "target_max": 40,
             "bid_premium": 0.08, "premium_up": 0.25, "budget_frac": 0.55,
             "leader_guard": False, "maturity_adapt": True,
         }),
-        "444_ultra_stock": ("444_agent", {
+        "444_ultra_stock": ("rotating_forks_agent", {
             "init_markup": 7.0, "ladder": [1.0, 0.88, 1.12, 0.78, 1.25],
             "down": 0.94, "hold_down": 0.97, "floor_patience": 4,
             "target_min": 24, "target_cover": 3.0, "target_max": 40,
@@ -375,32 +396,33 @@ ROSTERS = {
         "liquidity": ("rival_liquidity", {}),
     },
     "profiles": {
-        "base": ("444_agent", {}),
-        "stock_light": ("444_agent", {"target_min": 6, "target_cover": 1.0}),
-        "stock_min": ("444_agent", {"target_min": 3, "target_cover": 1.0}),
-        "cash_guard": ("444_agent", {"budget_frac": 0.35}),
-        "balanced_guard": ("444_agent", {"target_min": 6, "target_cover": 1.0, "budget_frac": 0.35}),
-        "patient_pricing": ("444_agent", {"down": 0.93, "hold_down": 1.0, "min_markup": 2.5}),
-        "aggressive_pricing": ("444_agent", {"down": 0.85, "hold_down": 0.90, "min_markup": 1.6}),
+        "base": ("rotating_forks_agent", {}),
+        "stock_light": ("rotating_forks_agent", {"target_min": 6, "target_cover": 1.0}),
+        "stock_min": ("rotating_forks_agent", {"target_min": 3, "target_cover": 1.0}),
+        "cash_guard": ("rotating_forks_agent", {"budget_frac": 0.35}),
+        "balanced_guard": ("rotating_forks_agent", {"target_min": 6, "target_cover": 1.0, "budget_frac": 0.35}),
+        "patient_pricing": ("rotating_forks_agent", {"down": 0.93, "hold_down": 1.0, "min_markup": 2.5}),
+        "aggressive_pricing": ("rotating_forks_agent", {"down": 0.85, "hold_down": 0.90, "min_markup": 1.6}),
         "DummyAgent": ("DummyAgent", {}),
     },
     "horizon": {
-        "base": ("444_agent", {"horizon_adapt": False}),
-        "leader_guard": ("444_agent", {"horizon_adapt": False, "leader_guard": True}),
-        "horizon4": ("444_agent", {"horizon_adapt": True, "horizon_turn": 4}),
-        "horizon6": ("444_agent", {"horizon_adapt": True, "horizon_turn": 6}),
-        "horizon8": ("444_agent", {"horizon_adapt": True, "horizon_turn": 8}),
-        "adaptive": ("444_agent", {"horizon_adapt": True, "horizon_turn": 8, "leader_guard": True}),
-        "horizon12": ("444_agent", {"horizon_adapt": True, "horizon_turn": 12}),
-        "stock_min": ("444_agent", {"horizon_adapt": False, "target_min": 3, "target_cover": 1.0}),
-        "cash_guard": ("444_agent", {"horizon_adapt": False, "budget_frac": 0.35}),
+        "base": ("rotating_forks_agent", {"horizon_adapt": False}),
+        "leader_guard": ("rotating_forks_agent", {"horizon_adapt": False, "leader_guard": True}),
+        "horizon4": ("rotating_forks_agent", {"horizon_adapt": True, "horizon_turn": 4}),
+        "horizon6": ("rotating_forks_agent", {"horizon_adapt": True, "horizon_turn": 6}),
+        "horizon8": ("rotating_forks_agent", {"horizon_adapt": True, "horizon_turn": 8}),
+        "adaptive": ("rotating_forks_agent", {"horizon_adapt": True, "horizon_turn": 8, "leader_guard": True}),
+        "horizon12": ("rotating_forks_agent", {"horizon_adapt": True, "horizon_turn": 12}),
+        "stock_min": ("rotating_forks_agent", {"horizon_adapt": False, "target_min": 3, "target_cover": 1.0}),
+        "cash_guard": ("rotating_forks_agent", {"horizon_adapt": False, "budget_frac": 0.35}),
         "DummyAgent": ("DummyAgent", {}),
     },
 }
 
 
 def play(job):
-    config_path, seed, roster, turns = job
+    config_path, seed, roster, turns, *rest = job
+    return_sim = bool(rest[0]) if rest else False
     classes = discover_bundle_classes([AGENTS_DIR])
     agents = {}
     for team, (bundle, kwargs) in roster.items():
@@ -415,7 +437,7 @@ def play(job):
         first = ordered.index(cap) + 1
         count = ordered.count(cap)
         ranks[team] = first + (count - 1) / 2
-    return config_path, seed, capital, ranks
+    return config_path, seed, capital, ranks, (sim if return_sim else None)
 
 
 def main(argv=None):
@@ -428,11 +450,14 @@ def main(argv=None):
     ap.add_argument("--seed0", type=int, default=1000)
     ap.add_argument("--turns", type=int, default=None)
     ap.add_argument("--workers", type=int, default=None)
+    ap.add_argument("--plot-dir", type=Path, default=None,
+                    help="render aggregated overview/auction/sales PNGs per config")
     args = ap.parse_args(argv)
 
     roster = json.loads(args.roster_json) if args.roster_json else ROSTERS[args.roster]
     roster = {k: tuple(v) for k, v in roster.items()}
-    jobs = [(str(ROOT / c), args.seed0 + s, roster, args.turns)
+    want_plots = args.plot_dir is not None
+    jobs = [(str(ROOT / c), args.seed0 + s, roster, args.turns, want_plots)
             for c in args.configs for s in range(args.seeds)]
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         results = list(pool.map(play, jobs))
@@ -453,6 +478,17 @@ def main(argv=None):
                           statistics.mean(caps), min(caps)))
         for avg, team, wins, mean_cap, min_cap in sorted(stats):
             print(f"{team:<18}{avg:>9.2f}{wins:>6}{mean_cap:>14,.0f}{min_cap:>13,.0f}")
+
+        if want_plots and config != "ALL" and rows:
+            sims = [r[4] for r in rows]
+            prefix = f"{args.roster}_{Path(config).stem}"
+            if len(sims) == 1:
+                render_plots(sims[0], args.plot_dir, prefix)
+            else:
+                mean_hist, err_hist = _aggregate_histories([s.history for s in sims])
+                agg = copy.copy(sims[0])
+                agg.history = mean_hist
+                render_plots(agg, args.plot_dir, prefix, error_history=err_hist)
 
 
 if __name__ == "__main__":

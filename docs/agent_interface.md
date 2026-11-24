@@ -2,9 +2,9 @@
 
 This reference explains the information passed to an agent and the actions
 it can return. For the agent class and local bundle layout, see
-[README section 4: Creating an agent](../README.md#4-creating-an-agent).
+[Simulator Guide: Create an Agent Bundle](simulator_guide.md#12-create-an-agent-bundle).
 For official uploads and results, see
-[Submit through the hackathon portal](../README.md#15-submit-through-the-hackathon-portal).
+[Simulator Guide: Submit Your Agent](simulator_guide.md#14-submit-your-agent).
 
 ## 1. Inputs
 

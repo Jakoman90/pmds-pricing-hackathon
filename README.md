@@ -1,576 +1,181 @@
-# Dynamic Market Exchange — essential guide
+# Dynamic Market Exchange — Hackathon Bidding & Pricing Agents
 
-Build an agent that bids for materials, assembles products, and sets sale
-prices. Test it against the built-in agents, then upload it through the page at
-the link provided by the organizers to compete with other teams.
+Our solution repository for the **AIRIC × PMDS Dynamic Market Exchange (DME)** pricing & bidding hackathon (forked from [`AIRIC-Polimi/pmds-pricing-hackathon`](https://github.com/AIRIC-Polimi/pmds-pricing-hackathon)).
 
-Start with **section 1** to get a working run. **Section 2** explains the game
-rules. Use **section 3** as a reference when changing an experiment; you do not
-need to read every option before starting.
+In the DME competition, autonomous agents manage a simulated electronics firm across sealed multi-turn markets—bidding for raw materials (`CHIP`, `DISPLAY`, `BATTERY`, `CASING`) in **pay-your-bid auctions**, planning recipe **production**, and setting **retail prices** for finished goods (`PHONE`, `LAPTOP`, `TABLET`, `SMARTWATCH`, `CONSOLE`) across heterogeneous customer segments (`BUDGET`, `MAINSTREAM`, `PREMIUM`). Final ranking is determined purely by **ending cash** (average rank across hidden scenarios; remaining inventory has zero terminal value).
 
-- [1. Get started](#1-get-started)
-  - [1.1 Fork the repository](#11-fork-the-repository)
-  - [1.2 Choose your workspace](#12-choose-your-workspace)
-  - [1.3 Create your agent](#13-create-your-agent)
-  - [1.4 Check that it runs](#14-check-that-it-runs)
-  - [1.5 Submit your agent](#15-submit-your-agent)
-- [2. Simulation mechanics](#2-simulation-mechanics)
-- [3. Testing reference](#3-testing-reference)
-  - [3.1 Options and configurations](#31-options-and-configurations)
-  - [3.2 Using the UI](#32-using-the-ui)
-  - [3.3 Comparing seeds and scenarios](#33-comparing-seeds-and-scenarios)
-  - [3.4 Results and recordings](#34-results-and-recordings)
-- [4. Troubleshooting](#4-troubleshooting)
+Our final competition submissions live in [`submission/`](submission/) and [`src/dme_simulator/agents/`](src/dme_simulator/agents/):
+- **`444_agent`** ([`submission/444_agent.zip`](submission/444_agent.zip) · [Strategy Guide](docs/444_agent.md)) — **Tight v7 + 5-Regime Market Detector**
+- **`rotating_forks_agent`** ([`submission/rotating_forks_agent.zip`](submission/rotating_forks_agent.zip) · [Strategy Guide](docs/rotating_forks_agent.md)) — **Probe-Driven Cyclic Price Ladder & Lot-Aware Bidder**
 
-## 1. Get started
+---
 
-### 1.1 Fork the repository
+## Submitted Agents Overview
 
-Sign in to GitHub, open the
-[DME repository](https://github.com/AIRIC-Polimi/pmds-pricing-hackathon), and select
-**Fork → Create fork** under your account. Use your fork for either workspace
-below. Its address should be `YOUR-USERNAME/pmds-pricing-hackathon`.
+Both submitted agents were engineered around three core empirical insights discovered in the simulator mechanics ([`docs/simulator_guide.md`](docs/simulator_guide.md)):
 
-### 1.2 Choose your workspace
+1. **Per-unit listing splitting ("lottery tickets"):** Customers sample stochastically among affordable listings (`price <= willingness_to_pay`), weighted toward cheaper offers. Submitting `N` separate `1`-unit `Listing` entries across a **price ladder** increases selection visibility while letting high-valuation `PREMIUM` buyers clear upper rungs.
+2. **Pay-your-bid discipline:** Auction winners pay their *own* bid price, not a uniform clearing price. Overbidding drains working capital directly, so bid levels must rise only when recipes starve and decay quickly when lots fill.
+3. **Zero holding cost vs. unknown horizon:** Because unsold stock carries over for free and match length is unknown, maintaining healthy shelf depth while avoiding below-cost price wars outperforms aggressive end-of-game liquidation.
 
-Choose **one of these two alternatives**. Both use your fork and lead to the
-same project; you do not need to complete both setups.
+| Feature | `444_agent` ([`Agent444`](src/dme_simulator/agents/444_agent/agent.py)) | `rotating_forks_agent` ([`RotatingForksAgent`](src/dme_simulator/agents/rotating_forks_agent/agent.py)) |
+|---|---|---|
+| **Architecture** | `Tight v7` core + runtime **5-regime detector** | Probe-driven anchor + cyclic ladder + rate-based shelf |
+| **Regime Adaptation** | Switches parameters across *Costly*, *Pricing-only*, *Single-lot Auction*, *Standard (≤40 turns)*, and *Mature (>40 turns)* | Single adaptive policy with patience-based floor relaxation & optional `observe_all_transactions` log parsing |
+| **Price Discovery** | `3.5x–4.5x` prior markup + widened `[0.75, 1.60]` ladder during first 6 turns; asymmetric up/down steps | `10.0x` initial markup + cheap **probe units** (`0.6x`, `0.4x`) on never-sold goods to snap anchor on first sale |
+| **Price Ladder** | Continuous linear spacing across `[ladder_low, ladder_high]`, sorted **cheapest-first** | Discrete cyclic pattern `(1.0, 0.9, 1.12, 0.8, 1.25, 1.4)` ordered by **fill priority** |
+| **Floor Protection** | Hard `1.3x` material-cost floor | Starts at `2.5x` cost; relaxes by `0.85x` after `3` zero-sale turns (down to `1.1x`) |
+| **Competition Reading** | Counts rival finished stock & potential producers (`can_offer`), applies `1.15x` monopoly boost & penalizes crowded recipes (`comp_weight=2.0`) | Infers rival inventory drops (`rival_sold`) & holders, applies `1.12x` monopoly boost, cuts harder (`0.85x`) when rivals sell and we don't |
+| **Auction Bidding** | Starvation-gated `bid_level`, adaptive cap (`cap_mode=2`, up to `60x` reserve), value-per-input cap, `50%–100%` budget share | `3x` opening bid, additive `+0.5` premium on underfill, `lot_aware` drop to `1.01x` reserve on growing lots, proportional `50%` budget cap |
+| **Best Environments** | Standard, high-volume (`scaled_market`), `long`, and `costly` markets | Crowded 8-team fields, `short`, `capacity`-capped, and `tutorial_auction` markets |
 
-#### Option A — Codespaces: work in your browser
+For detailed line-by-line breakdowns, formulas, and trade-offs, read:
+- [**`444_agent` Strategy & Architecture Guide**](docs/444_agent.md)
+- [**`rotating_forks_agent` Strategy & Architecture Guide**](docs/rotating_forks_agent.md)
+- [**`SOLUZIONE_IT.md`**](SOLUZIONE_IT.md) *(Italian development log & design notes)*
 
-Use this option to work without installing Git, uv, or Python on your computer. You will not be able to run optional graphical visualizations using the simulator window UI.
-On your fork, select **Code → Codespaces → Create codespace on main**. Wait
-for setup to finish, then open this guide in the editor. To open the integrated
-terminal, select **Terminal → New Terminal** from the editor's menu.
-Python 3.12, uv, and project dependencies are installed automatically.
-Stop the Codespace when you finish (at the end of the hackathon).
+---
 
-**Once setup finishes, skip Option B and continue to section 1.3.**
+## Benchmark Results
 
-#### Option B — Local clone: work on your computer (RECOMMENDED)
+Measured locally using [`tools/league.py`](tools/league.py) across the official scenarios (`config/*.yaml`) and our custom stress-test scenarios (`tools/scenarios/*.yaml`).
 
-Use this option if you prefer your own editor and terminal. Install Git and uv
-using the expandable instructions below if needed. Replace `YOUR-USERNAME`
-with the owner of your fork, then run:
+### 1. Submitted Agents vs. Official Built-in Bots (`--roster submitted`)
+**60 games** (12 scenarios × 5 seeds: `1000–1004`), competing simultaneously (`444_agent`, `rotating_forks_agent`, `DummyAgent`, `PatientAgent`, `PriceWarAgent`):
+
+| Agent | Avg Rank | Wins ( / 60) | Mean Capital | Min Capital |
+|---|---:|---:|---:|---:|
+| **`444_agent`** | **1.22** | **47** | **84,150** | 6,543 |
+| **`rotating_forks_agent`** | **1.78** | **13** | **51,652** | **9,716** |
+| `PatientAgent` | 3.53 | 0 | 14,250 | 5,000 |
+| `DummyAgent` | 3.73 | 0 | 13,760 | 14 |
+| `PriceWarAgent` | 4.73 | 0 | 10,900 | 65 |
+
+- Together, `444_agent` and `rotating_forks_agent` swept **60 / 60 wins** and took 1st & 2nd place in every scenario.
+- `444_agent` swept **5/5** in `default` (70,456 mean cash), `scaled_market` (436,914), `tutorial_pricing` (14,630), `costly` (61,319), `short` (36,228), `long` (127,966), `beta_high` (46,494), and `beta_low` (92,490).
+- `rotating_forks_agent` swept **5/5** in `tutorial_auction` (14,834 vs. 6,773) and `capacity` (58,415 vs. 34,623), and won 2/5 in `cheap_wtp` (30,014 vs. 28,099).
+
+![Submitted agents vs official bots on default.yaml (5 seeds)](docs/images/submitted_default_dashboard_overview.png)
+
+*5-seed mean curves (±1 SE) on `config/default.yaml`: `444_agent` invests aggressively during `open_turns` (turns 1–3) before overtaking `rotating_forks_agent` around turn 7, while both agents capture >85% of total unit market share.*
+
+### 2. Submitted Agents in a Crowded 8-Agent Field (`--roster submitted_field`)
+**30 games** (6 scenarios × 5 seeds: `default`, `scaled_market`, `costly`, `scarce`, `short`, `long`) against strong experimental and synthetic rivals (`tight`, `adaptive_v3`, `mirror_sniper`, `rival_stockpile`, `rival_under_cut`, `DummyAgent`):
+
+| Agent | Avg Rank | Wins ( / 30) | Mean Capital | Min Capital |
+|---|---:|---:|---:|---:|
+| `tight` | 2.20 | 9 | 35,682 | 441 |
+| **`rotating_forks_agent`** | **2.27** | **12** | **32,942** | **2,003** |
+| **`444_agent`** | 3.83 | 1 | 24,513 | 6,045 |
+| `adaptive_v3` | 4.00 | 3 | 22,965 | 6,491 |
+| `rival_stockpile` | 5.13 | 5 | 24,367 | 277 |
+| `mirror_sniper` | 5.73 | 0 | 22,156 | 255 |
+| `rival_under_cut` | 6.03 | 0 | 18,888 | 5,253 |
+| `DummyAgent` | 6.80 | 0 | 15,056 | 2 |
+
+- In crowded 8-player markets, `rotating_forks_agent` posted the highest win count (**12/30**, sweeping `default` 5/5 and `short` 5/5) thanks to its `50%` budget cap and probe-driven price discovery.
+- `444_agent` preserved the highest worst-case capital floor (**6,045** minimum cash across all 30 games) and outperformed `rotating_forks_agent` in `costly` (`2.60` vs `4.80` avg rank) and `scarce` (`3.00` vs `3.20` avg rank).
+
+![Submitted agents in a crowded 8-agent field on default.yaml (5 seeds)](docs/images/submitted_field_default_dashboard_overview.png)
+
+*5-seed mean curves (±1 SE) on `config/default.yaml` (`submitted_field`): when aggressive `Tight`-family rivals bid up early inputs simultaneously, `rotating_forks_agent`'s `50%` budget cap avoids the early cash drawdown and wins 5/5 games.*
+
+---
+
+## Quick Start
+
+### 1. Install Dependencies
+
+Requires Python `3.11–3.13` and [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/pmds-pricing-hackathon.git
-cd pmds-pricing-hackathon
 uv sync --locked --python 3.12
 ```
 
-Python 3.11–3.13 is supported; uv can download Python 3.12. Native Windows,
-Linux, and macOS are supported. On Windows, decision deadlines are checked while
-executing Python code; blocking I/O and native-library calls are checked when
-they return to Python. This adds tracing overhead, so local timing can differ
-from the Unix evaluator. WSL, Codespaces, and Linux containers remain alternatives.
-
-<details>
-<summary>Need Git or uv? Installation commands by operating system</summary>
-
-**Ubuntu / Debian** — open a terminal and run these commands to install Git,
-download tools, and uv:
+### 2. Verify Discovered Agents
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y git curl ca-certificates
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**macOS** — open the Terminal app. Run the first command to install Apple's
-command-line tools for Git and finish the installation dialog. Then run the
-second command in the terminal to install uv. Skip tools that are already
-installed:
-
-```bash
-xcode-select --install
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Windows (PowerShell)** — open a PowerShell terminal and run these commands
-to install Git and uv, then close and reopen PowerShell:
-
-```powershell
-winget install --id Git.Git -e
-winget install --id astral-sh.uv -e
-```
-
-
-After installing tools, reopen the terminal and run `git --version` and
-`uv --version` to check that both tools are available. For other Linux
-distributions or installation methods, see the
-official [Git](https://git-scm.com/install/) and
-[uv](https://docs.astral.sh/uv/getting-started/installation/) instructions.
-
-</details>
-
-**After either option**, continue to section 1.3. Run all remaining terminal
-commands from the **repository root**: the `pmds-pricing-hackathon/` folder
-containing `pyproject.toml`, `config/`, and `src/`. In Codespaces, the terminal
-normally opens in this folder. With a local clone, the `cd` command above puts
-you there. Paths in the commands below are relative to this folder.
-
-### 1.3 Create your agent
-
-In your editor, open the `pmds-pricing-hackathon/` project folder. Create a
-subfolder for each agent under
-**`pmds-pricing-hackathon/src/dme_simulator/agents/`**. Put that agent's
-`agent.py`, optional Python helpers, and optional models inside its folder.
-The example below shows the folder structure:
-
-```text
-pmds-pricing-hackathon/                 # run commands here
-  README.md
-  pyproject.toml
-  config/
-  src/
-    dme_simulator/
-      agents/
-        base.py                       # leave existing simulator files unchanged
-        loader.py
-        builtin_bundles/              # supplied opponents; leave unchanged
-        your-agent-name/              # create one folder per agent
-          agent.py
-          strategy.py                 # optional
-          models/                     # optional
-```
-
-Use your editor's file explorer to create a folder such as `your-agent-name`
-inside `src/dme_simulator/agents/`. Create a file named `agent.py` inside it.
-You can create multiple agents by creating multiple folders.
-The simulator discovers agents here automatically, including all experimental
-agent folders you leave in this directory. Paste the following Python code
-into `agent.py` in your editor, then save the file:
-
-```python
-from dme_simulator.agents import (
-    AssemblyOrder, BaseAgent, Bid, Decision, Listing, Observation,
-)
-from dme_simulator.config import GoodsConfig
-
-
-class StarterAgent(BaseAgent):
-    def decide(self, state: Observation, goods_config: GoodsConfig) -> Decision:
-        return Decision(
-            bids=[
-                Bid(lot.good, 1, lot.reserve_price * 1.1)
-                for lot in state.auction_lots
-            ],
-            assembly=[
-                AssemblyOrder(name, 1) for name in goods_config.recipes
-            ],
-            listings=[
-                Listing(good, 1_000, 250.0)
-                for good in goods_config.finished_goods
-            ],
-        )
-```
-
-The folder name is your agent ID. Define exactly one concrete `BaseAgent`
-subclass in `agent.py`, constructible without arguments. Use only the supplied
-public inputs, your own memory, and bundled models; treat inputs as read-only.
-The [agent interface reference](docs/agent_interface.md) explains the inputs and
-actions. The starter checks the setup; you should improve its strategy.
-
-### 1.4 Check that it runs
-
-In the terminal, from the repository root, run these commands one at a time
-to check syntax and discovery. Replace `your-agent-name` in the first command
-with your agent's folder name:
-
-```bash
-uv run python -m compileall -q src/dme_simulator/agents/your-agent-name
 uv run dme-sim --list-agents
 ```
 
-Discovery should list your folder ID alongside the built-in agents. It imports
-agent modules but does not construct agents or run turns.
+Both `444_agent` and `rotating_forks_agent` are automatically discovered alongside the built-in and experimental bundles under `src/dme_simulator/agents/`.
 
-Then, in the same terminal, run this command to start a short simulation:
+### 3. Run Simulations & Benchmarks
+
+Run a single simulation (interactive pygame window or headless):
 
 ```bash
-uv run dme-sim --turns 5
+uv run dme-sim --turns 40 --ui window --turn-delay 0.2
+uv run dme-sim --config config/default.yaml --ui none
 ```
 
-This uses the default scenario and automatically loads your agents alongside
-`DummyAgent`, `PatientAgent`, and `PriceWarAgent`. With one custom agent, you
-should see **four teams**. The run prints capital and stock through turn 5 and
-saves three dashboard PNGs in `outputs/default/`. No agent-path argument is
-needed.
-
-To watch the simulation in the terminal, run:
+Run multi-seed league tournaments with [`tools/league.py`](tools/league.py):
 
 ```bash
-uv run dme-sim --turns 5 --ui terminal --turn-delay 0.5
+# Head-to-head: 444_agent & rotating_forks_agent vs official built-in bots (with aggregated plots)
+uv run python tools/league.py --roster submitted --seeds 5 --configs config/default.yaml config/scaled_market.yaml --plot-dir outputs/league_plots
+
+# Crowded 8-agent competitive field
+uv run python tools/league.py --roster submitted_field --seeds 5 --configs config/default.yaml config/scaled_market.yaml tools/scenarios/costly.yaml tools/scenarios/short.yaml
+
+# Full 12-scenario sweep
+uv run python tools/league.py --roster submitted --seeds 5 --configs config/default.yaml config/scaled_market.yaml config/tutorial_pricing.yaml config/tutorial_auction.yaml tools/scenarios/costly.yaml tools/scenarios/scarce.yaml tools/scenarios/short.yaml tools/scenarios/long.yaml tools/scenarios/capacity.yaml tools/scenarios/cheap_wtp.yaml tools/scenarios/beta_high.yaml tools/scenarios/beta_low.yaml
 ```
 
-For a graphical window on your computer (**not available in codespaces**). run in the terminal:
+Run evolutionary parameter tuning for `rotating_forks_agent` via [`tools/evolve.py`](tools/evolve.py):
 
 ```bash
-uv run dme-sim --turns 5 --ui window --turn-delay 0.5
-``` 
-
-Now edit your strategy and rerun. Check [testing reference](#3-testing-reference)
-when you want the window UI, a longer run, or comparisons across seeds.
-
-### 1.5 Submit your agent
-
-Open the page at the **link provided by the organizers**, log in, and upload
-your agent folder as a folder or a single ZIP. The URL will be announced;
-check validation status and official results on that page. Only the latest
-submission before the deadline counts for scoring.
-
-**For teams that use Codespace**, create a new folder in **your local system**, 
-then download each file **separately** from the Codespace and save it in that folder.
-Finally, upload the folder or a ZIP of it to the submission portal. 
-
-**Official scoring:** the final evaluation will include multiple matches across
-several different private scenarios, which are not shared with participants.
-These scenarios test how well agents perform under different market conditions.
-Each match ranks agents by their final capital (cash), highest first. Inventory
-adds no value to the score. Overall rankings use the arithmetic mean of each
-agent's ranks across its official matches; a lower average rank is better.
-For example, ranks 1, 2, and 3 give an average rank of 2.
-
-Before uploading, check:
-
-- Exactly one `agent.py`, with one concrete agent class callable without
-  arguments; optional Python helpers and supported model files stay inside
-  the same bundle.
-- At most **64 files** and **20 MiB of file contents**. A ZIP must also be at
-  most 20 MiB. Upload only allowed Python/model files; exclude caches, plots,
-  documentation, and virtual environments.
-- All Python files compile, including unused helpers. Load models once in
-  the constructor and use dependencies available in the evaluator; uploads
-  cannot install packages.
-- Portal validation tests three default-scenario turns. Decisions have a
-  **100 ms** deadline; validation has a **10-second** wall-clock deadline and a
-  CPU allowance. Errors or timeouts reject the upload.
-
-Local scores are experiment results, not official competition scores. In
-Codespaces, download your bundle files for the browser's upload picker. Review
-the file rules below before your first upload.
-
-<details>
-<summary>Submission file rules and model loading</summary>
-
-- **Bundle layout:** exactly one `agent.py` in the submission. An enclosing
-  upload folder is allowed, but all files must be inside the folder containing
-  that entry point. Optional helpers may define functions or classes; imported
-  classes do not count as additional agent entry points. Every Python file
-  must be valid UTF-8 Python.
-- **ZIPs:** upload one `.zip` alone, using stored or deflate compression without
-  encryption. The 64-file and 20 MiB contents limits apply after extraction;
-  the ZIP itself must also be at most 20 MiB (20,971,520 bytes). Directory
-  entries do not count as files. Encrypted or corrupted archives, links,
-  special files, unsafe or duplicate entries, and nested archives are rejected.
-  Selecting a folder or ZIP in the browser clears the other selection.
-- **Allowed extensions:** `.py` and optional model files with lowercase
-  extensions `.bin`, `.pt`, `.pth`, `.pkl`, `.pickle`, `.joblib`, `.onnx`,
-  `.safetensors`, `.npy`, `.npz`, `.h5`, or `.hdf5`. Other extensions and
-  hidden files are rejected. Exclude `__pycache__/`, `.pyc`, documentation,
-  plots, `.git/`, and `.venv/` from uploads.
-- **Paths:** each file or folder name must begin with a letter, number, or
-  underscore; the remaining characters may also include dots, spaces, and
-  hyphens. Relative paths must be at most 240 characters. Subfolders are
-  preserved; absolute paths, traversal paths such as `../`, and duplicate
-  paths are rejected.
-- **Models:** the evaluator provides Pickle, NumPy, and CPU PyTorch loaders.
-  Other formats need a compatible loader from its installed dependencies;
-  accepting an extension does not install a runtime. Pickled models depending
-  on unavailable packages fail to load. Model bytes are stored unchanged.
-  The local simulator's locked environment does not include PyTorch.
-- **Loading:** resolve model files with `__file__`, for example
-  `Path(__file__).parent / "models" / "weights.npz"`, and load them once in
-  your constructor. In the evaluator, import, construction, and decisions run
-  with the Python file's directory as the working directory. Validation and
-  tournament play have the same paths and installed dependencies. Uploads
-  cannot supply requirements files or install packages.
-- **Validation:** the browser checks folder limits, paths, layout, extensions,
-  and Python UTF-8; for ZIPs it checks the filename and compressed size, with
-  extraction and contents validation on the server. The server compiles every
-  Python file, including unimported helpers, then imports a disposable copy,
-  constructs the agent, and checks three default-scenario decisions. Invalid
-  actions, wrong return types, exceptions, missing files/dependencies, and
-  timeouts reject the upload. Passing this smoke check does not guarantee
-  valid decisions in every competition scenario.
-
-For local helpers, use relative imports such as `from .strategy import choose`.
-A bundle does not need an `__init__.py`; if present, that file is not executed
-by the bundle loader. Your agent may use its own models and memory, public
-observations, and goods configuration. It must not inspect simulator internals
-or other submissions.
-
-</details>
-
-## 2. Simulation mechanics
-
-In this section there is a complete overview of the simulator mechanics.
-
-There are no workforce costs and no storage costs. Capital only leaves your
-company through material purchases at auction and only returns through sales.
-Unsold raw materials and finished goods carry over to the next turn for free.
-
-### 2.1 The turn cycle
-
-At the start of each turn, every solvent agent receives an `Observation` and has
-`agents.decide_timeout_ms` milliseconds to return one `Decision` containing its
-bids, assembly orders, and sales listings. The agent chooses all three before
-the auction closes: it cannot see which bids won and then revise what to
-produce or list. The simulator applies that same decision in three phases:
-
-1. **Auction** — the published raw-material lots are sold to the highest sealed
-   bids; winners' materials land in their inventory.
-2. **Production** — teams convert raw materials into finished goods by recipe.
-3. **Sales** — teams list finished goods at their chosen prices and spawned
-   customers buy them; revenue is paid immediately.
-
-The later phases use the materials and finished goods actually available when they run, so a planned assembly or listing may be only partly fulfilled. Agents also choose without seeing the other teams' current decisions. Random behavior is reproducible for a given configuration and seed.
-
-### 2.2 Phase 1 - Raw-material auction
-
-Every turn raw-material suppliers replenish their stock by a quantity drawn from
-the scenario's configured range. Unsold stock carries over. The simulator
-publishes the available stock as a lot with a dynamic `reserve_price`; it starts
-from the configured `base_price` and falls as supplier stock accumulates. The
-lots are public and visible in `state.auction_lots` before you bid.
-
-Each `suppliers.<good>` entry has its own `price_stock_factor`,
-`price_floor_multiplier`, and `adaptation` settings. These control the
-reserve-price curve and whether persistent empty or full stock changes that
-supplier's replenishment and stock capacity.
-
-A `Bid(good, quantity, price_per_unit)` is sealed: no team sees another team's
-bid. For each material, bids are sorted by price, highest first, and filled
-until the lot runs out, so a bid may be filled partially or not at all. Bids
-below the reserve price are discarded.
-
-**Pay-your-bid.** A winner pays its own bid price per unit, not the lowest
-winning price. Bidding 100 when the lot would have cleared at 30 costs you 100.
-
-**Ties.** Bids at exactly the same price share the remaining units through a
-round robin in random team order.
-
-**The budget cap.** Your winnings are capped by the capital you still hold: the
-simulator tracks your remaining capital across the auction and never allocates
-more units than you can pay for. Materials clear in a random order each turn, so
-no material systematically gets first claim on your budget. Bidding for more
-than you can afford is safe for your solvency, but it costs you the surplus
-units — you cannot predict which materials your budget will be spent on.
-
-### 2.3 Phase 2 - Production
-
-Recipes convert raw materials into finished goods. Each recipe defines its
-output good and the quantity of each input material. Assembly orders are
-processed in the order returned by the agent and are limited only by the
-materials you hold, plus the scenario's optional `production.capacity_per_turn`
-cap on total units per team per turn. Inputs are consumed and finished goods are
-available to sell in the same turn.
-
-### 2.4 Phase 3 - Sales
-
-A `Listing(good, quantity, price)` offers a finished good for sale; `good` must
-be in `goods_config.finished_goods`. You may list any amount, including none,
-and you may split one finished good across several listings at
-different prices. A listing is capped by the inventory you actually hold, and
-only a positive price makes it available to buyers.
-
-Unsold and unlisted stock simply stays in inventory for the next turn at no
-cost.
-
-Customers are spawned per turn, in a quantity that fluctuates over time. Each
-customer belongs to a **segment** — a customer type with its own share of the
-crowd, its own preferences over goods, and its own willingness to pay. A budget
-segment that mostly wants smartwatches will not pay laptop prices, and a premium
-segment will.
-
-Segment definitions are simulator configuration, not agent input. Each customer
-picks a good by its segment's preferences and draws a private valuation from
-that segment's range for that good. It then buys from the listings priced at or
-below that valuation; lower prices are more likely to win the sale, but
-customers do not always choose the cheapest eligible seller. A customer who
-finds no affordable listing leaves without buying.
-
-### 2.5 Public information
-
-Inventories are public. `state.public_inventories` and `state.public_capital`
-show every team's holdings and capital, so you can see who is stockpiling and
-who is short. `state.auction_transactions` and `state.sales_transactions`
-contain completed transactions, including the good,
-quantity, unit price and buyer for auctions. Sales records include the seller
-and omit the buyer because customers are anonymous. These lists accumulate
-throughout the run. By default they contain only transactions involving the
-observing team; set
-`agents.observe_all_transactions` to `true` to expose the whole market log.
-
-What you do not see is the current turn's bids and listings, which are sealed
-until the turn resolves.
-
-### 2.6 Bankruptcy
-
-If capital is below zero at the end of a turn, the company is liquidated: its
-inventory is cleared and it takes no further turns. Because the auction's budget
-cap prevents overspending, bankruptcy is rare and generally means selling below
-cost.
-
-### 2.7 Configuration and analytics
-
-Market scenarios are YAML files under `config/`. They define the duration and
-seed, initial capital, per-material supplier production and pricing policies,
-the production cap, customer segments, goods and recipes, the agent roster,
-transaction visibility, and output settings. Unknown configuration keys and
-invalid cross-references fail fast.
-
-The included sample scenarios are:
-
-- `config/tutorial_pricing.yaml`: one good, materials abundant and nearly free —
-  only the listed price decides the winner;
-- `config/tutorial_auction.yaml`: one good that always sells at about the same
-  price — only what you pay at auction decides the winner;
-- `config/default.yaml`: the standard hardware market, four materials, five
-  goods, three customer segments;
-- `config/scaled_market.yaml`: a larger, busier market with scarcer materials.
-
-The tutorials are meant to be used in that order: isolate pricing, then isolate
-bidding, then handle both together in the full market.
-
-`initial_state.initial_inventory` gives every team a private copy of the
-configured starting stock. Goods not listed there start at zero.
-
-## 3. Testing reference
-
-### 3.1 Options and configurations
-
-In the terminal, add or change options on the `uv run dme-sim` command in
-[section 1.4](#14-check-that-it-runs).
-Omit `--turns 5` to use a scenario's full duration. Scenarios are described in
-[section 2.7](#27-configuration-and-analytics); keep the official files unchanged
-when comparing agents.
-
-| Option | Purpose |
-| --- | --- |
-| `--config PATH` | Choose a YAML scenario; defaults to `config/default.yaml`. Repeat for several scenarios. |
-| `--turns N` | Override duration with a positive turn count. |
-| `--seed N` | Set a reproducible seed; otherwise use the scenario's seed. |
-| `--ui window`, `terminal`, or `none` | Choose a pygame window, live console dashboard, or plain progress. |
-| `--turn-delay SECONDS` | Pace a live display; nonnegative seconds per turn. |
-| `--output-dir PATH` | Choose the directory for PNG charts. |
-| `--simulations N` | Run N consecutive seeds per scenario; defaults to one. |
-| `--max-workers N` | Limit parallel batch workers; defaults to CPU count. |
-| `--list-agents` | Print discovered bundle IDs without constructing agents or running turns. Agent modules are imported. |
-| `--profile` | Print decision and phase timings for one simulation. Cannot be used for batches. |
-| `--guide` | Print the dashboard guide and exit. |
-| `--record [PATH]` | Record a single run; see section 3.4. |
-| `--replay PATH` | View a recording without loading agents or running a simulation. |
-| `--help` | Show the complete command-line help. |
-
-CLI paths start from your working directory. All supplied scenarios discover
-bundles under `src/dme_simulator/agents` recursively. Each bundle folder name
-must be unique. With the supplied scenarios, every discovered bundle competes
-and no path arguments are needed. For a different roster, `--agents-dir PATH`
-replaces the search root (repeat for several roots); `--extra-agent PATH` adds
-a bundle stored elsewhere. Do not append a bundle already in the default root.
-These overrides are optional. To see their syntax, run
-`uv run dme-sim --help` in the terminal.
-
-### 3.2 Using the UI
-
-To open a graphical window on your computer (**not available in Codespaces**), run this command in the terminal
-from the repository root:
-
-```bash
-uv run dme-sim --turns 5 --ui window --turn-delay 0.5
+uv run python tools/evolve.py 0 4 8
 ```
 
-The window starts paused at turn 0. Press **Space** or click **Play** to begin.
-To watch in the terminal instead, replace `--ui window` with `--ui terminal`
-in the command and run it in the terminal.
-Redirected terminal output falls back to plain progress. `--ui none` runs
-without a live dashboard. Batch runs skip the live UI.
+---
 
-| Window control | Action |
-| --- | --- |
-| Space / Play | Pause or resume. |
-| Right / N / Next | View or execute the next turn. |
-| Left / P / Back | Pause and view the previous turn. |
-| Home / Restart | Return the viewer to turn 0 and pause; preserves simulation state. |
-| Up / Down | Speed up / slow down. |
-| C / chart tabs | Switch between Cash, Cash flow, and Sales charts. |
-| H / F1 / Guide | Open the guide with metric definitions and controls. |
-| Ctrl + plus/minus; Ctrl + 0 | Zoom; reset zoom. |
-| Mouse wheel / Page Up / Page Down | Scroll the panel under the pointer or the guide. |
-| Esc | Close the guide if open; otherwise stop the run. |
-| Q / close window | Stop the run; close the viewer after completion. |
+## Repository Structure
 
-Browsing history never reruns decisions. Play catches up through saved turns
-before continuing live execution. At completion, the window remains open for
-inspection. Cash excludes inventory value; cash flow is sales revenue minus
-auction spending in that turn. Use the guide for the full dashboard legend.
-
-**Codespaces:** the provided devcontainer supports terminal/headless runs. A
-graphical UI is possible with an added browser desktop such as
-[desktop-lite/noVNC](https://github.com/devcontainers/features/tree/main/src/desktop-lite),
-which is not included in the current configuration. You can also download a
-recording and replay it locally. Press H/F1 in the viewer for the scrollable
-guide, or run `uv run dme-sim --guide` in the terminal to read it there.
-
-### 3.3 Comparing seeds and scenarios
-
-Before choosing a strategy, compare it across multiple seeds and both full
-market scenarios. For example, run this command in the terminal from the
-repository root. Enter it as one line so it also works in PowerShell:
-
-```bash
-uv run dme-sim --config config/default.yaml --config config/scaled_market.yaml --simulations 3 --turns 30 --seed 100 --max-workers 3 --output-dir outputs/comparison
+```text
+pmds-pricing-hackathon/
+├── submission/                         # Final portal-ready submission ZIPs
+│   ├── 444_agent.zip                   # Primary submission (Agent444)
+│   └── rotating_forks_agent.zip        # Alternate submission (RotatingForksAgent)
+├── src/dme_simulator/
+│   ├── agents/
+│   │   ├── 444_agent/agent.py          # Submitted: Tight v7 + 5-regime detector
+│   │   ├── rotating_forks_agent/agent.py # Submitted: Probe + cyclic-ladder agent
+│   │   ├── pepo_baseline/agent.py      # Simple safety parachute baseline
+│   │   ├── tight/ & tight.py           # Tight v7 base engine
+│   │   ├── adaptive_v2/ & adaptive_v3/ # Intermediate adaptive/regime prototypes
+│   │   ├── mirror_*/ & competitive_rivals.py # 6 mirror-style benchmark bots
+│   │   ├── rival_*/ & diverse_rivals.py      # 6 diverse-archetype benchmark bots
+│   │   ├── builtin_bundles/            # Official DummyAgent, PatientAgent, PriceWarAgent
+│   │   ├── base.py & loader.py         # Simulator agent interface & bundle loader
+│   └── ...                             # Official DME simulator engine, CLI, UI, plots
+├── tools/
+│   ├── league.py                       # Multi-seed tournament runner & average-rank scorer
+│   ├── evolve.py                       # Evolutionary hyperparameter search
+│   ├── scenarios/                      # 8 stress-test market scenarios (costly, scarce, short, long, ...)
+│   └── results/                        # Saved early tournament logs (official.txt, crowded.txt)
+├── config/                             # Official YAML scenarios (default, scaled_market, ultralong, tutorials)
+├── docs/
+│   ├── images/                         # Aggregated 5-seed benchmark dashboard PNGs
+│   ├── 444_agent.md                    # Deep dive: 444_agent strategy & mechanics
+│   ├── rotating_forks_agent.md         # Deep dive: rotating_forks_agent strategy & mechanics
+│   ├── simulator_guide.md              # Full DME rules, CLI flags, UI controls & submission spec
+│   └── agent_interface.md              # Observation, GoodsConfig, and Decision API reference
+├── benchmarks/                         # Simulation phase profiling harness
+├── legacy/bizagent/                    # Pre-hackathon rule/LP/RL prototype (historical reference)
+├── SOLUZIONE_IT.md                     # Italian technical notes & development log
+└── pyproject.toml                      # Project configuration & uv dependencies
 ```
 
-This runs seeds 100, 101, and 102 for each scenario: six simulations with up to
-three workers. Fresh agents are constructed for each run. Outputs aggregate
-each scenario into mean curves with standard-error bands. Keep team IDs and
-roster order consistent when comparing seeded results. Use `--profile` on a
-single run to inspect decision timing against the 100 ms default deadline.
+---
 
-### 3.4 Results and recordings
+## Documentation Index
 
-With plot rendering enabled in the scenario, the chosen output directory gets:
-
-| PNG suffix | What to inspect |
-| --- | --- |
-| `*_dashboard_overview.png` | Capital, cash movements, market share, and captured/missed demand. |
-| `*_dashboard_auction.png` | Reserve and winning prices, offered materials, fill rates, and units won. |
-| `*_dashboard_sales.png` | Units sold, listed/realized prices, unserved customers, and unsold stock. |
-
-To save a run for later viewing, run this command in the terminal from the
-repository root:
-
-```bash
-uv run dme-sim --turns 5 --record
-```
-
-It creates `outputs/recordings/<timestamp>/simulation.jsonl` and prints a
-copyable replay command. `--output-dir` controls plots, not this recording path.
-Alternatively, pass an explicit file with an existing parent directory;
-recording refuses to overwrite files. Batches cannot be recorded.
-
-To view the recording, run the printed `uv run dme-sim --replay PATH` command
-in a terminal on your computer (**not available in Codespaces**).
-Replay needs neither your agent nor the original scenario, produces no new
-plots, and uses the same window controls. It accepts only `--ui window` and
-`--turn-delay` alongside `--replay`. Recordings are spectator data; your agent
-must not read them.
-
-## 4. Troubleshooting
-
-| Problem | Check |
-| --- | --- |
-| Tool not found | Reopen the terminal after installation, then run `git --version` and `uv --version` there. |
-| Unsupported Python | In the terminal, run the Python 3.12 sync command in section 1.2. |
-| Codespace disconnects during rebuild | Reconnect after the container restarts and setup finishes. |
-| Agent fails to load | The specified folder must contain `agent.py`, defining exactly one concrete agent callable without arguments. |
-| Built-in opponents missing | Use the supplied scenarios without a custom `--agents-dir`; place your agents under the default root in section 1.3. |
-| Duplicate ID | Give each agent bundle a unique folder name; the Python class name does not set its ID. |
-| Agent takes no actions | Add `--ui none` to show warnings and tracebacks. Exceptions, malformed decisions, and timeouts cause empty fallback decisions. |
-| Window unavailable | Use the environment guidance in section 3.2; `--ui none` runs without a graphical window. |
-| Upload rejected | Check every Python helper and the full submission rules; exclude caches and unaccepted file types. |
-| Portal URL missing | Use the link supplied by the organizers; local tests are available before it opens. |
-| Poor results | Inspect auction, sales, and inventory charts, then compare more seeds. A single local score is not an official ranking. |
+| Document | Description |
+|---|---|
+| [`docs/444_agent.md`](docs/444_agent.md) | Full architecture & parameter breakdown of `444_agent` (`Agent444`) |
+| [`docs/rotating_forks_agent.md`](docs/rotating_forks_agent.md) | Full architecture & parameter breakdown of `rotating_forks_agent` (`RotatingForksAgent`) |
+| [`docs/simulator_guide.md`](docs/simulator_guide.md) | Complete DME game mechanics, CLI options, UI controls, and portal submission rules |
+| [`docs/agent_interface.md`](docs/agent_interface.md) | Reference for `Observation`, `GoodsConfig`, and `Decision` data types |
+| [`SOLUZIONE_IT.md`](SOLUZIONE_IT.md) | Italian write-up of the hackathon insights, experiments, and tuning history |
+| [`legacy/bizagent/FINAL_REPORT.md`](legacy/bizagent/FINAL_REPORT.md) | Statistical evaluation of our pre-rules `bizagent` prototype (LP + Bayesian demand) |
